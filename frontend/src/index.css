@@ -1,0 +1,57 @@
+:root {
+  --panel-bg: #1a1d24;
+  --panel-border: #2c313c;
+  --text: #e8eaed;
+  --text-dim: #9aa0ac;
+  --accent: #22b8cf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background: #111318;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+}
+
+.map-container {
+  position: absolute;
+  inset: 0;
+}
+
+.corner-buttons {
+  position: absolute;
+  bottom: 24px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.corner-btn {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.corner-btn:hover {
+  border-color: var(--accent);
+}
+
+.corner-btn-dim {
+  color: var(--text-dim);
+}

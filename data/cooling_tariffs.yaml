@@ -1,0 +1,30 @@
+# Ручной ingestion-слой district cooling.
+# Правила:
+#  - source_note и entered_by обязательны для каждой записи
+#  - обновление тарифа = НОВАЯ запись с новым effective_from (историю не менять)
+#  - scope: building | district | provider_default
+#  - consumption_fils_per_rth — филсов за RTh (56.8 fils = AED 0.568)
+#  - demand_aed_per_rt_year — AED за RT в год (capacity/demand charge)
+
+# Допущения для ОЦЕНКИ cooling_est (AED/sqft/год), см. etl/pipeline/cooling.py.
+# Это отраслевые правила большого пальца, на карте помечается как estimate.
+assumptions:
+  sqft_per_rt: 400      # ~400 sqft жилой площади на 1 тонну охлаждения
+  eflh_hours: 2500      # эквивалентные часы полной нагрузки в год (Дубай)
+
+tariffs:
+  - provider: empower
+    scope: provider_default
+    consumption_fils_per_rth: 56.8     # AED 0.568/RTh
+    demand_aed_per_rt_year: 750
+    fuel_surcharge_pct: 0              # fuel surcharge меняется помесячно, в оценку не включаем
+    effective_from: 2024-01-01
+    source_note: >-
+      Empower charges explanation (https://www.empower.ae/customer-care/charges-explanation/)
+      + Gulf News 2024 (https://gulfnews.com/living-in-uae/housing/uae-what-are-the-district-cooling-charges-in-dubai-1.1720017124527):
+      consumption AED 0.568/RTh, demand AED 750/RT/год
+    entered_by: "claude-code setup 2026-07-04"
+
+  # Tabreed: тарифы отличаются по конкретным проектам/концессиям и публично
+  # не стандартизированы — вносить per-building/per-district записями по мере
+  # получения данных, provider_default для tabreed сознательно не задан.

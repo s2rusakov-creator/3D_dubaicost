@@ -1,0 +1,29 @@
+# Секреты — никогда в git
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Сырые данные (большие CSV/GeoJSON качаются в /raw, не хранятся в git).
+# data/*.csv и data/*.yaml — это РУЧНЫЕ конфиги, они как раз должны быть в git.
+raw/
+backend/raw/
+*.geojson
+
+# IDE
+.idea/
+.vscode/
+
+# Claude Code — локальные настройки/разрешения конкретной машины
+.claude/settings.local.json

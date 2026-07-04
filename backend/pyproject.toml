@@ -1,0 +1,34 @@
+[project]
+name = "dubaicost-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "geoalchemy2>=0.15",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "pydantic-settings>=2.4",
+    "structlog>=24.1",
+    "httpx>=0.27",
+    "rapidfuzz>=3.9",
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    "shapely>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-mock>=3.14",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "respx>=0.21",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

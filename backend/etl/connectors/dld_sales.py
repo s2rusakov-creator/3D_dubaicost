@@ -31,13 +31,15 @@ COLUMN_CANDIDATES = {
     "tx_date": ("instance_date", "transaction_date"),
     "price_aed": ("actual_worth", "trans_value"),
     "area_sqm": ("procedure_area", "actual_area"),
-    "property_type": ("property_type_en",),
+    "property_type": ("property_type_en", "prop_type_en"),
     "rooms": ("rooms_en", "rooms"),
     "reg_type": ("reg_type_en",),
-    "group": ("trans_group_en",),
+    # Ручная выгрузка с dubailand.gov.ae даёт это поле напрямую, без reg_type
+    "is_offplan": ("is_offplan_en",),
+    "group": ("trans_group_en", "group_en"),
     "building_name": ("building_name_en",),
-    "project_name": ("project_name_en",),
-    "area_name": ("area_name_en",),
+    "project_name": ("project_name_en", "project_en"),
+    "area_name": ("area_name_en", "area_en"),
 }
 REQUIRED_COLUMNS = ("dld_tx_id", "tx_date", "price_aed")
 
@@ -85,16 +87,69 @@ def download_csv(url: str, dest: Path) -> Path:
     return dest
 
 
+def fetch_with_fallback(url: str, dest: Path, fallback: Path) -> Path:
+    """Качаем актуальный CSV с официального источника; если он недоступен
+    (портал лёг/переехал) — используем заранее подготовленный fallback-файл
+    (например, вручную скачанный снапшот с Kaggle). Fallback никогда не
+    маскирует рабочий источник — при живом URL всегда качаем свежее.
+    """
+    try:
+        return download_csv(url, dest)
+    except (httpx.HTTPError, OSError) as exc:
+        if fallback.exists():
+            log.warning(
+                "csv_download_failed_using_fallback",
+                url=url, error=str(exc), fallback=str(fallback),
+            )
+            return fallback
+        raise
+
+
+def _parse_is_offplan(row: pd.Series, cols: dict[str, str | None]) -> bool | None:
+    """Предпочитаем прямое поле is_offplan_en (ручная выгрузка dubailand.gov.ae),
+    иначе выводим из reg_type (bulk CSV Dubai Pulse)."""
+    if cols["is_offplan"]:
+        return "off" in str(clean(row.get(cols["is_offplan"])) or "").lower()
+    if cols["reg_type"]:
+        return "off" in str(clean(row.get(cols["reg_type"])) or "").lower()
+    return None
+
+
 class DldSalesConnector(Connector):
     name = "dld_sales"
     required_fields = ("dld_tx_id", "tx_date", "price_aed")
 
-    def fetch(self) -> Path:
+    def fetch(self) -> list[Path]:
+        # Несколько fallback-файлов допустимо (например, ручная выгрузка
+        # dubailand.gov.ae за текущий год + исторический снапшот с Kaggle) —
+        # у каждого файла своя схема колонок, normalize() разбирает поштучно.
+        raw_dir = Path(settings.raw_dir)
+        fallbacks = sorted(raw_dir.glob("dld_sales_fallback*.csv"))
         if not settings.dld_sales_csv_url:
-            raise SkipJob("DLD_SALES_CSV_URL не задан")
-        return download_csv(settings.dld_sales_csv_url, Path(settings.raw_dir) / "dld_sales.csv")
+            if fallbacks:
+                log.warning(
+                    "dld_sales_csv_url_not_set_using_fallback",
+                    fallbacks=[str(f) for f in fallbacks],
+                )
+                return fallbacks
+            raise SkipJob("DLD_SALES_CSV_URL не задан и fallback-файлы отсутствуют")
+        try:
+            return [download_csv(settings.dld_sales_csv_url, raw_dir / "dld_sales.csv")]
+        except (httpx.HTTPError, OSError) as exc:
+            if fallbacks:
+                log.warning(
+                    "csv_download_failed_using_fallback",
+                    url=settings.dld_sales_csv_url, error=str(exc),
+                    fallbacks=[str(f) for f in fallbacks],
+                )
+                return fallbacks
+            raise
 
-    def normalize(self, raw: Path) -> Iterator[dict]:
+    def normalize(self, raw: list[Path]) -> Iterator[dict]:
+        for path in raw:
+            yield from self._normalize_file(path)
+
+    def _normalize_file(self, raw: Path) -> Iterator[dict]:
         for chunk in pd.read_csv(raw, chunksize=CHUNK_SIZE, low_memory=False):
             cols = {k: pick_column(chunk, *v) for k, v in COLUMN_CANDIDATES.items()}
             missing = [k for k in REQUIRED_COLUMNS if cols[k] is None]
@@ -130,8 +185,7 @@ class DldSalesConnector(Connector):
                     "property_type": clean(row.get(cols["property_type"]))
                     if cols["property_type"] else None,
                     "rooms": clean(row.get(cols["rooms"])) if cols["rooms"] else None,
-                    "is_offplan": "off" in str(clean(row.get(cols["reg_type"])) or "").lower()
-                    if cols["reg_type"] else None,
+                    "is_offplan": _parse_is_offplan(row, cols),
                     "_match_name": match_name,
                     "_area_name": clean(row.get(cols["area_name"])) if cols["area_name"] else None,
                 }

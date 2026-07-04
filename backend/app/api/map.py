@@ -41,6 +41,7 @@ def get_map(
             LEFT JOIN latest_building_metrics m
               ON m.building_id = b.id AND m.metric = :metric
             WHERE b.geom && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)
+            ORDER BY (m.value_median IS NULL)
             LIMIT :lim
             """
         )
@@ -55,6 +56,7 @@ def get_map(
                    b.{col} AS value, NULL AS sample_size, NULL AS period
             FROM buildings b
             WHERE b.geom && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)
+            ORDER BY (b.{col} IS NULL)
             LIMIT :lim
             """
         )

@@ -6,10 +6,17 @@ import pandas as pd
 
 
 def pick_column(df: pd.DataFrame, *candidates: str) -> str | None:
-    """Первое существующее имя колонки из кандидатов (схемы DLD слегка плавают)."""
+    """Первое существующее имя колонки из кандидатов (схемы DLD слегка плавают).
+
+    Регистронезависимо: ручная выгрузка с dubailand.gov.ae использует ВЕРХНИЙ
+    РЕГИСТР (TRANSACTION_NUMBER), а bulk CSV — нижний (transaction_id).
+    """
+    lower_map = {c.lower(): c for c in df.columns}
     for name in candidates:
         if name in df.columns:
             return name
+        if name.lower() in lower_map:
+            return lower_map[name.lower()]
     return None
 
 

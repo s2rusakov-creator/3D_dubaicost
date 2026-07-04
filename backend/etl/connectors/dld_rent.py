@@ -3,6 +3,7 @@
 Датасет: https://www.dubaipulse.gov.ae/data/dld-registration/dld_rent_contracts-open
 Тот же паттерн, что dld_sales: чанки, батчи, matching с кэшем.
 """
+import hashlib
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -12,10 +13,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from etl.connectors.base import Connector, SkipJob
-from etl.connectors.dld_sales import CHUNK_SIZE, SQM_TO_SQFT, download_csv
+from etl.connectors.dld_sales import CHUNK_SIZE, SQM_TO_SQFT, fetch_with_fallback
 from etl.connectors.util import clean, pick_column
 from etl.pipeline.matching import BuildingMatcher
+
+log = get_logger(__name__)
 
 BATCH_SIZE = 5_000
 
@@ -26,10 +30,26 @@ COLUMN_CANDIDATES = {
     "annual_rent_aed": ("annual_amount", "contract_amount"),
     "area_sqm": ("actual_area", "property_size"),
     "building_name": ("ejari_property_name", "building_name_en"),
-    "project_name": ("project_name_en", "master_project_en"),
-    "area_name": ("area_name_en",),
+    "project_name": ("project_name_en", "project_en", "master_project_en"),
+    "area_name": ("area_name_en", "area_en"),
+    # Только для синтетического ID, если dld_contract_id отсутствует (ручная выгрузка)
+    "registration_date": ("registration_date",),
 }
-REQUIRED_COLUMNS = ("dld_contract_id", "start_date", "annual_rent_aed")
+# dld_contract_id нет в ручной выгрузке dubailand.gov.ae — синтезируем ID из строки
+REQUIRED_COLUMNS = ("start_date", "annual_rent_aed")
+
+
+def _synthetic_contract_id(row: pd.Series, cols: dict[str, str | None]) -> str:
+    """Стабильный ID из содержимого строки — источник без своего contract_id.
+
+    Детерминированный хэш даёт идемпотентность при повторном импорте того же
+    файла (ON CONFLICT сработает), но не гарантирует уникальность в теории —
+    приемлемо для ручного разового бутстрапа без официального bulk CSV.
+    """
+    key_cols = ("registration_date", "start_date", "end_date", "annual_rent_aed",
+                "area_sqm", "project_name", "area_name")
+    raw_key = "|".join(str(row.get(cols[c], "")) for c in key_cols if cols.get(c))
+    return "synthetic:" + hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:24]
 
 UPSERT = text(
     """
@@ -68,9 +88,14 @@ class DldRentConnector(Connector):
     required_fields = ("dld_contract_id", "start_date", "annual_rent_aed")
 
     def fetch(self) -> Path:
+        raw_dir = Path(settings.raw_dir)
+        fallback = raw_dir / "dld_rent_fallback.csv"
         if not settings.dld_rent_csv_url:
-            raise SkipJob("DLD_RENT_CSV_URL не задан")
-        return download_csv(settings.dld_rent_csv_url, Path(settings.raw_dir) / "dld_rent.csv")
+            if fallback.exists():
+                log.warning("dld_rent_csv_url_not_set_using_fallback", fallback=str(fallback))
+                return fallback
+            raise SkipJob("DLD_RENT_CSV_URL не задан и fallback-файл отсутствует")
+        return fetch_with_fallback(settings.dld_rent_csv_url, raw_dir / "dld_rent.csv", fallback)
 
     def normalize(self, raw: Path) -> Iterator[dict]:
         for chunk in pd.read_csv(raw, chunksize=CHUNK_SIZE, low_memory=False):
@@ -100,8 +125,12 @@ class DldRentConnector(Connector):
                         if match_name:
                             break
                 end = ends.iloc[i] if ends is not None else None
+                contract_id = (
+                    str(clean(row.get(cols["dld_contract_id"])) or "") or None
+                    if cols["dld_contract_id"] else _synthetic_contract_id(row, cols)
+                )
                 yield {
-                    "dld_contract_id": str(clean(row.get(cols["dld_contract_id"])) or "") or None,
+                    "dld_contract_id": contract_id,
                     "start_date": None if pd.isna(start) else start.date(),
                     "end_date": None if end is None or pd.isna(end) else end.date(),
                     "annual_rent_aed": rent if rent and rent > 0 else None,

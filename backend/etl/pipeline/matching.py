@@ -5,6 +5,7 @@
   75 <= score < 92 -> review (в очередь ручной валидации)
   score < 75   -> unmatched (не привязываем)
 """
+import re
 from dataclasses import dataclass
 
 from rapidfuzz import fuzz, process
@@ -13,6 +14,30 @@ from sqlalchemy.orm import Session
 
 AUTO_THRESHOLD = 92
 REVIEW_THRESHOLD = 75
+
+# WRatio завышает скор коротких/общих алиасов: любое DLD-название,
+# содержащее слово "Residence"/"Villa" и т.п., "матчится" на первое здание
+# с таким алиасом почти со 100% score, хотя это не одно и то же здание.
+# Плюс мусорные OSM-теги подобъектов (парковки, кода блоков): "A", "01", "G24".
+MIN_ALIAS_LENGTH = 4
+_GENERIC_ALIASES = {
+    "residence", "residences", "tower", "towers", "hotel", "hotels",
+    "house", "building", "villa", "villas", "plaza", "one", "two",
+    "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "spa", "office", "offices", "apartment", "apartments", "block",
+    "parking", "mall", "center", "centre", "club",
+}
+_CODE_PATTERN = re.compile(r"^[a-z]{0,2}\d+[a-z]{0,2}$")
+
+
+def is_low_quality_alias(alias: str) -> bool:
+    norm = normalize_name(alias)
+    stripped = norm.replace(" ", "")
+    if len(norm) < MIN_ALIAS_LENGTH:
+        return True
+    if norm in _GENERIC_ALIASES:
+        return True
+    return bool(_CODE_PATTERN.match(stripped))
 
 
 def classify_score(score: float) -> str:
@@ -39,7 +64,9 @@ class BuildingMatcher:
 
     def __init__(self, db: Session):
         rows = db.execute(text("SELECT alias, building_id FROM building_aliases")).all()
-        self._aliases: dict[str, int] = {normalize_name(a): b for a, b in rows}
+        self._aliases: dict[str, int] = {
+            normalize_name(a): b for a, b in rows if not is_low_quality_alias(a)
+        }
         self._keys = list(self._aliases.keys())
         # В bulk CSV миллионы строк, но уникальных названий на порядки меньше —
         # без кэша fuzzy-поиск по каждой строке делает загрузку неподъёмной

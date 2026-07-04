@@ -24,6 +24,8 @@ from app.models import Building
 log = get_logger(__name__)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Overpass отклоняет запросы без внятного User-Agent (406 Not Acceptable)
+HEADERS = {"User-Agent": "DubaiCostETL/0.1 (self-hosted real-estate map, non-commercial MVP)"}
 
 # bbox: (min_lat, min_lon, max_lat, max_lon) — порядок Overpass
 PILOT_AREAS: dict[str, tuple[float, float, float, float]] = {
@@ -108,7 +110,7 @@ def element_to_feature(el: dict) -> dict | None:
 
 def fetch_area(area: str, bbox: tuple[float, float, float, float]) -> int:
     query = QUERY_TEMPLATE.format(bbox=",".join(str(c) for c in bbox))
-    resp = httpx.post(OVERPASS_URL, data={"data": query}, timeout=300)
+    resp = httpx.post(OVERPASS_URL, data={"data": query}, timeout=300, headers=HEADERS)
     resp.raise_for_status()
     elements = resp.json().get("elements", [])
     log.info("overpass_fetched", area=area, elements=len(elements))

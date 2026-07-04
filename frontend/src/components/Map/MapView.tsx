@@ -27,6 +27,9 @@ export function MapView() {
   const setSelectedBuilding = useAppStore((s) => s.setSelectedBuilding);
   const layerRef = useRef(activeLayerId);
   layerRef.current = activeLayerId;
+  // Кэш уже полученных зданий (по id) — bbox-фетч на каждый moveend иначе
+  // затирал бы здания, выпавшие из текущей вьюпорты, хотя они не изменились
+  const featuresCacheRef = useRef<Map<number, GeoJSON.Feature>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -52,7 +55,16 @@ export function MapView() {
         const resp = await fetch(`/api/map?bbox=${bbox}&layer=${layerRef.current}`);
         if (!resp.ok) return;
         const geojson = await resp.json();
-        (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(geojson);
+        const cache = featuresCacheRef.current;
+        for (const feature of geojson.features as GeoJSON.Feature[]) {
+          const id = feature.properties?.id;
+          if (id != null) cache.set(id, feature);
+        }
+        const merged: GeoJSON.FeatureCollection = {
+          type: "FeatureCollection",
+          features: Array.from(cache.values()),
+        };
+        (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(merged);
       } catch {
         // API недоступен (dev без бэкенда) — карта остаётся пустой
       }
@@ -62,6 +74,9 @@ export function MapView() {
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
+        // По умолчанию GeoJSON-источник упрощает геометрию на дальних зумах
+        // (tolerance 0.375) — мелкие полигоны зданий схлопываются и исчезают
+        tolerance: 0,
       });
       map.addLayer({
         id: LAYER_3D_ID,
@@ -95,6 +110,8 @@ export function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getLayer(LAYER_3D_ID)) return;
+    // value в кэше специфичен для слоя — при смене слоя кэш неактуален
+    featuresCacheRef.current.clear();
     map.setPaintProperty(
       LAYER_3D_ID,
       "fill-extrusion-color",

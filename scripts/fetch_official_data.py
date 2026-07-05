@@ -64,11 +64,22 @@ def check_reachability() -> bool:
     return any_ok
 
 
+MIN_EXPECTED_MB = 5  # реальный bulk CSV — сотни МБ; заглушка/капча-страница всегда меньше
+
+
+def looks_like_html(dest: Path) -> bool:
+    """Если вместо CSV сайт отдал HTML (капча/JS-проверка/страница ошибки)."""
+    with open(dest, "rb") as f:
+        head = f.read(512).lstrip().lower()
+    return head.startswith((b"<!doctype", b"<html"))
+
+
 def download(url: str, dest: Path) -> bool:
     print(f"Скачиваю {dest.name}...")
     req = urllib.request.Request(url, headers=HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp:
+            content_type = (resp.getheader("Content-Type") or "").lower()
             total = resp.getheader("Content-Length")
             total_bytes = int(total) if total else None
             downloaded = 0
@@ -85,7 +96,26 @@ def download(url: str, dest: Path) -> bool:
                         print(f"\r  {mb:.1f} / {total_bytes / 1e6:.1f} МБ ({pct}%)", end="", flush=True)
                     else:
                         print(f"\r  {mb:.1f} МБ", end="", flush=True)
-        print(f"\n  [OK] Готово: {dest} ({dest.stat().st_size / 1e6:.1f} МБ)\n")
+        print()
+
+        size_mb = dest.stat().st_size / 1e6
+        if "html" in content_type or looks_like_html(dest):
+            print(
+                f"  [ПРОВЕРКА] Сайт вернул HTML вместо CSV — похоже на капчу или "
+                f"проверку \"я не робот\". Файл {dest.name} НЕ настоящие данные, удаляю.\n"
+                f"  Это придётся скачать вручную через браузер (открыть ссылку и "
+                f"сохранить файл — как делали раньше с dubailand.gov.ae).\n"
+            )
+            dest.unlink()
+            return False
+        if size_mb < MIN_EXPECTED_MB:
+            print(
+                f"  [ПРЕДУПРЕЖДЕНИЕ] Файл подозрительно маленький ({size_mb:.2f} МБ) — "
+                f"настоящий bulk CSV весит сотни МБ. Проверь {dest} вручную перед отправкой.\n"
+            )
+            return True
+
+        print(f"  [OK] Готово: {dest} ({size_mb:.1f} МБ)\n")
         return True
     except Exception as exc:  # noqa: BLE001
         print(f"\n  [ОШИБКА] Не удалось скачать: {exc}\n")

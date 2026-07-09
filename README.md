@@ -38,6 +38,26 @@ docker compose exec etl python -c "from etl.cron import run_all; run_all()"
 
 CSV транзакций ~0.5–1 ГБ, первый прогон занимает десятки минут.
 
+### Локальный пересбор всего (без Docker)
+
+Один скрипт прогоняет все ETL-шаги по порядку (миграции → OSM-здания →
+cooling-провайдер → коннекторы DLD + агрегация → парковка → демо-слой → POI):
+
+```powershell
+cd backend
+.venv/Scripts/python.exe ../scripts/bootstrap_local.py
+```
+
+Шаги идемпотентны, повторный запуск безопасен. Нужен локальный
+PostgreSQL+PostGIS и `backend/.env` с `DATABASE_URL`; DLD CSV — в `backend/raw/`
+(fallback-файлы `dld_sales_fallback*.csv`, `dld_rent_fallback.csv`).
+
+### Официальные данные из ОАЭ
+
+Портал Dubai Pulse гео-заблокирован извне ОАЭ. Скрипт
+`scripts/fetch_official_data.py` (только стандартная библиотека Python)
+качает bulk CSV изнутри ОАЭ и детектит капчу/HTML-заглушку.
+
 ## Источники данных
 
 | Источник | Что даёт | Как |
@@ -53,17 +73,31 @@ CSV транзакций ~0.5–1 ГБ, первый прогон занимае
 
 ```
 backend/
-  app/          # FastAPI: api/ (map, buildings, layers, coverage, review, tiles)
+  app/          # FastAPI: api/ (map, buildings, layers, coverage, review, tiles, districts, pois)
   etl/
     connectors/ # dld_sales, dld_rent, service_charge_manual, cooling_manual, alias_overrides
-    pipeline/   # matching (fuzzy + кэш), aggregate (+cooling est, anomaly), cooling
-    jobs/       # fetch_osm_buildings (Overpass), load_geo (GeoJSON)
-  migrations/   # Alembic
+    pipeline/   # matching (fuzzy + token_set-гейт + кэш), aggregate (+cooling est, anomaly), cooling
+    jobs/       # fetch_osm_buildings, load_geo, compute_parking, assign_cooling_provider,
+                # build_demographics, fetch_pois, rematch_all
+  migrations/   # Alembic (0001 схема, 0002 demographics+pois)
 data/           # ручные данные в git: cooling_tariffs.yaml, service_charges.csv, alias_overrides.yaml
+scripts/        # bootstrap_local.py (пересбор), fetch_official_data.py (загрузка из ОАЭ)
 frontend/
-  src/layers.config.ts   # единый конфиг слоёв: новый слой = запись здесь
-  src/components/        # MapLayerPanel, MapView, BuildingCard, InfoPanel, ReviewPanel
+  src/layers.config.ts     # конфиг радио-слоёв зданий: новый слой = запись здесь
+  src/overlays.config.ts   # конфиг оверлеев (демография, POI): цвета/подписи
+  src/components/          # MapLayerPanel, MapView, BuildingCard, DistrictCard, InfoPanel, ReviewPanel
 ```
+
+## Слои и оверлеи
+
+Радио-слои зданий (активен один): Price, Rent, Service Charge, District Cooling
+Fee, Parking Ratio, Built Year. Независимые оверлеи (тумблеры):
+
+- **Диаспоры по районам** — ОРИЕНТИРОВОЧНЫЕ тенденции по преобладающим общинам
+  из открытых источников (не официальная статистика; в UI помечено бейджем).
+  Числа населения намеренно не заполнены — гранулярных офиц. данных нет.
+- **Достопримечательности** — POI из OSM (аттракционы, молы, парки, пляжи,
+  метро) круглыми маркерами с попапом.
 
 ## Принципы данных
 
@@ -85,6 +119,8 @@ frontend/
 - `GET /api/buildings/{id}` — карточка: метрики, service charge, cooling
 - `GET /api/layers`, `GET /api/coverage` — покрытие и статус ETL
 - `GET/POST /api/review` — очередь matching'а (заголовок `X-Admin-Token`)
+- `GET /api/districts` — демо-зоны (ориентировочные диаспоры) GeoJSON
+- `GET /api/pois?bbox=` — достопримечательности GeoJSON
 
 ## Статус этапов
 

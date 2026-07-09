@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BuildingCard } from "./components/BuildingCard/BuildingCard";
+import { DistrictCard } from "./components/DistrictCard/DistrictCard";
 import { InfoPanel } from "./components/InfoPanel/InfoPanel";
 import { MapView } from "./components/Map/MapView";
 import { MapLayerPanel } from "./components/MapLayerPanel/MapLayerPanel";
@@ -14,6 +15,7 @@ export default function App() {
       <MapView />
       <MapLayerPanel />
       <BuildingCard />
+      <DistrictCard />
 
       <div className="corner-buttons">
         <button className="corner-btn" onClick={() => setShowInfo(true)}>

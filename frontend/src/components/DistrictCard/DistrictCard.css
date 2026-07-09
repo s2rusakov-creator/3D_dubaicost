@@ -1,0 +1,45 @@
+.district-card {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  width: 320px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 16px;
+  z-index: 11;
+}
+
+.district-badge {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 4px 8px;
+  background: rgba(230, 200, 80, 0.14);
+  border: 1px solid rgba(230, 200, 80, 0.35);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #e6c850;
+}
+
+.district-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.district-note {
+  margin-top: 8px;
+  color: var(--text-dim);
+}
+
+.district-card .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-right: 8px;
+}

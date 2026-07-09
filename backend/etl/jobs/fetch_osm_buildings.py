@@ -32,6 +32,15 @@ PILOT_AREAS: dict[str, tuple[float, float, float, float]] = {
     "marina_jlt": (25.055, 55.125, 25.095, 55.162),        # Dubai Marina + JLT
     "downtown_businessbay": (25.170, 55.245, 25.210, 55.290),
     "jvc": (25.045, 55.195, 25.075, 55.225),               # Jumeirah Village Circle
+    # Расширение покрытия: населённые районы (в т.ч. с выраженными диаспорами)
+    "palm_jumeirah": (25.100, 55.110, 25.135, 55.160),     # Palm Jumeirah (виллы/апартаменты)
+    "jbr": (25.068, 55.128, 25.085, 55.145),               # Jumeirah Beach Residence
+    "jumeirah": (25.195, 55.240, 25.245, 55.275),          # Jumeirah (виллы)
+    "deira": (25.250, 55.300, 25.290, 55.335),             # Deira (Южная Азия/Иран)
+    "bur_dubai": (25.240, 55.280, 25.275, 55.310),         # Bur Dubai (Южная Азия)
+    "international_city": (25.155, 55.395, 25.185, 55.425),  # International City
+    "al_barsha": (25.100, 55.190, 25.125, 55.220),         # Al Barsha
+    "dubai_hills": (25.100, 55.240, 25.135, 55.275),       # Dubai Hills Estate
 }
 
 QUERY_TEMPLATE = """
@@ -176,6 +185,23 @@ def fetch_area(area: str, bbox: tuple[float, float, float, float]) -> int:
         db.close()
 
 
+def fetch_area_with_retry(area: str, bbox: tuple[float, float, float, float],
+                          attempts: int = 3) -> bool:
+    """Overpass отдаёт транзиентные 504/SSL под нагрузкой — повторяем с паузой.
+    Возвращает True при успехе; False если все попытки провалились (не рушим цикл).
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            fetch_area(area, bbox)
+            return True
+        except Exception as exc:  # noqa: BLE001 — любой сетевой сбой Overpass
+            log.warning("area_fetch_failed", area=area, attempt=attempt, error=str(exc))
+            if attempt < attempts:
+                time.sleep(20)
+    log.error("area_fetch_gave_up", area=area, attempts=attempts)
+    return False
+
+
 def main() -> None:
     setup_logging()
     areas = sys.argv[1:] or list(PILOT_AREAS)
@@ -185,7 +211,7 @@ def main() -> None:
             continue
         if i > 0:
             time.sleep(10)  # вежливый rate limit к Overpass
-        fetch_area(area, PILOT_AREAS[area])
+        fetch_area_with_retry(area, PILOT_AREAS[area])
 
 
 if __name__ == "__main__":

@@ -84,13 +84,21 @@ class BuildingMatcher:
         if norm in self._aliases:
             result = MatchResult(self._aliases[norm], 100.0, "auto")
         else:
-            best = process.extractOne(norm, self._keys, scorer=fuzz.WRatio)
-            if best is None:
+            # WRatio быстро сужает до кандидатов, но склонен завышать скор при
+            # совпадении лишь общего токена (бренд-девелопер, номер). Гейт по
+            # token_set_ratio: берём min(WRatio, token_set) — чтобы пройти в auto,
+            # названия должны совпадать И по строке, И по набору слов.
+            candidates = process.extract(norm, self._keys, scorer=fuzz.WRatio, limit=3)
+            best_alias, best_score = None, 0.0
+            for alias, wr, _ in candidates:
+                combined = min(wr, fuzz.token_set_ratio(norm, alias))
+                if combined > best_score:
+                    best_alias, best_score = alias, combined
+            if best_alias is None:
                 result = MatchResult(None, 0.0, "unmatched")
             else:
-                alias, score, _ = best
-                status = classify_score(score)
-                building_id = self._aliases[alias] if status != "unmatched" else None
-                result = MatchResult(building_id, float(score), status)
+                status = classify_score(best_score)
+                building_id = self._aliases[best_alias] if status != "unmatched" else None
+                result = MatchResult(building_id, float(best_score), status)
         self._cache[norm] = result
         return result

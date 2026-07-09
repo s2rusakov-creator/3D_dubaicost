@@ -1,7 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import buildings, coverage, layers, map as map_api, review, tiles
+from app.api import (
+    buildings,
+    coverage,
+    districts,
+    layers,
+    map as map_api,
+    pois,
+    review,
+    tiles,
+)
 from app.core.config import settings
 from app.core.logging import setup_logging
 
@@ -22,6 +31,8 @@ app.include_router(layers.router, prefix="/api")
 app.include_router(coverage.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
 app.include_router(tiles.router, prefix="/api")
+app.include_router(districts.router, prefix="/api")
+app.include_router(pois.router, prefix="/api")
 
 
 @app.get("/healthz")

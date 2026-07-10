@@ -27,7 +27,19 @@ _GENERIC_ALIASES = {
     "spa", "office", "offices", "apartment", "apartments", "block",
     "parking", "mall", "center", "centre", "club",
 }
+# Родовое ведущее слово: "Tower 1", "Building 10", "Block B", "Podium A" —
+# это подобъект/этаж/секция в OSM, а не уникальное здание. Через общие токены
+# ("tower"+"1") такой алиас ловит десятки чужих DLD-транзакций ("Modelux Tower 1",
+# "Sunrise Bay Tower 1" -> "Tower 1"). Отсекаем. Проприетарные имена вида
+# "Bahar 1", "Al Majara 2" НЕ трогаем (ведущее слово не родовое).
+_GENERIC_LEAD = {
+    "tower", "towers", "building", "buildings", "block", "blocks",
+    "podium", "plot", "plots", "floor", "villa", "villas", "unit", "units",
+    "wing", "phase", "zone", "cluster", "core",
+}
 _CODE_PATTERN = re.compile(r"^[a-z]{0,2}\d+[a-z]{0,2}$")
+# Короткий код: "1", "10", "2a" (буква-цифра) ИЛИ 1–2 буквы ("a", "b", "ab").
+_SHORT_CODE = re.compile(r"^([a-z]{0,2}\d+[a-z]{0,2}|[a-z]{1,2})$")
 
 
 def is_low_quality_alias(alias: str) -> bool:
@@ -37,7 +49,12 @@ def is_low_quality_alias(alias: str) -> bool:
         return True
     if norm in _GENERIC_ALIASES:
         return True
-    return bool(_CODE_PATTERN.match(stripped))
+    if _CODE_PATTERN.match(stripped):
+        return True
+    parts = norm.split()
+    if len(parts) == 2 and parts[0] in _GENERIC_LEAD and _SHORT_CODE.match(parts[1]):
+        return True
+    return False
 
 
 def classify_score(score: float) -> str:

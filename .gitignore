@@ -21,6 +21,10 @@ raw/
 backend/raw/
 *.geojson
 
+# Артефакты передачи заказчику (большой дамп БД — отдаётся отдельно, не в git)
+delivery/*.dump
+delivery/*.tar.gz
+
 # IDE
 .idea/
 .vscode/

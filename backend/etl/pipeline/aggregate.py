@@ -115,6 +115,52 @@ RESOLVE_COOLING_TARIFFS = text(
     """
 )
 
+# Агрегация должна быть АВТОРИТЕТНОЙ: UPSERT добавляет/обновляет актуальные
+# метрики, но при пере-матчинге (изменилась логика, ушла привязка) старые строки
+# остаются "осиротевшими" — здание продолжает светиться неверной ценой. Поэтому
+# перед upsert чистим метрики, под которыми больше нет исходных данных.
+DELETE_STALE_SALES = text(
+    """
+    DELETE FROM building_metrics bm
+    WHERE bm.metric = 'price_sqft'
+      AND NOT EXISTS (
+        SELECT 1 FROM sales_transactions s
+        WHERE s.building_id = bm.building_id
+          AND s.match_status IN ('auto', 'manual')
+          AND s.price_per_sqft BETWEEN :lo AND :hi
+          AND s.tx_date IS NOT NULL
+          AND date_trunc('month', s.tx_date)::date = bm.period
+      )
+    """
+)
+
+DELETE_STALE_RENT = text(
+    """
+    DELETE FROM building_metrics bm
+    WHERE bm.metric = 'rent_sqft'
+      AND NOT EXISTS (
+        SELECT 1 FROM rent_contracts r
+        WHERE r.building_id = bm.building_id
+          AND r.match_status IN ('auto', 'manual')
+          AND r.rent_per_sqft_year BETWEEN :lo AND :hi
+          AND r.start_date IS NOT NULL
+          AND date_trunc('month', r.start_date)::date = bm.period
+      )
+    """
+)
+
+DELETE_STALE_SERVICE_CHARGE = text(
+    """
+    DELETE FROM building_metrics bm
+    WHERE bm.metric = 'service_charge'
+      AND NOT EXISTS (
+        SELECT 1 FROM service_charges sc
+        WHERE sc.building_id = bm.building_id
+          AND make_date(sc.year, 1, 1) = bm.period
+      )
+    """
+)
+
 UPSERT_METRIC = text(
     """
     INSERT INTO building_metrics
@@ -174,6 +220,10 @@ def check_median_shift(db: Session) -> None:
 
 
 def run_aggregation(db: Session, assumptions: CoolingAssumptions | None = None) -> None:
+    # Сначала убираем осиротевшие метрики (потеряли исходные данные), затем upsert.
+    db.execute(DELETE_STALE_SALES, {"lo": PRICE_SQFT_BOUNDS[0], "hi": PRICE_SQFT_BOUNDS[1]})
+    db.execute(DELETE_STALE_RENT, {"lo": RENT_SQFT_BOUNDS[0], "hi": RENT_SQFT_BOUNDS[1]})
+    db.execute(DELETE_STALE_SERVICE_CHARGE)
     db.execute(UPSERT_SALES, {"lo": PRICE_SQFT_BOUNDS[0], "hi": PRICE_SQFT_BOUNDS[1]})
     db.execute(UPSERT_RENT, {"lo": RENT_SQFT_BOUNDS[0], "hi": RENT_SQFT_BOUNDS[1]})
     db.execute(UPSERT_SERVICE_CHARGE)

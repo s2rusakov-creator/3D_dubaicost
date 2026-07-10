@@ -48,7 +48,15 @@ def test_low_quality_alias_filtered():
     assert is_low_quality_alias("G24")
     assert is_low_quality_alias("Residence")
     assert is_low_quality_alias("Tower")
-    # Нормальные названия проходят
+    # Родовое слово + короткий код — подобъект OSM, ловит чужие транзакции
+    assert is_low_quality_alias("Tower 1")
+    assert is_low_quality_alias("Tower A")
+    assert is_low_quality_alias("Building 10")
+    assert is_low_quality_alias("Block B")
+    assert is_low_quality_alias("Podium A")
+    # Проприетарные "<имя> <номер>" НЕ трогаем — это реальные здания
+    assert not is_low_quality_alias("Bahar 1")
+    assert not is_low_quality_alias("Al Majara 2")
     assert not is_low_quality_alias("Marina Pinnacle")
     assert not is_low_quality_alias("Burj Khalifa")
 

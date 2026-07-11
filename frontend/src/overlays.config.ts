@@ -13,6 +13,7 @@ export const COMMUNITY_STYLES: Record<string, CommunityStyle> = {
   filipino_chinese_mixed: { color: "#9e8a6b", label: "Филиппинцы, китайцы, смешанные" },
   western_russian_expats: { color: "#7d8e6b", label: "Западные и русскоязычные экспаты" },
   emirati_affluent: { color: "#8e6b8a", label: "Граждане ОАЭ и состоятельные экспаты" },
+  mixed_diverse: { color: "#7d9e9a", label: "Смешанные (многонациональные районы)" },
 };
 
 export const DEFAULT_COMMUNITY_COLOR = "#5a5f6a";

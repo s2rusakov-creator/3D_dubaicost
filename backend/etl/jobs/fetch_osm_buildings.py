@@ -23,7 +23,14 @@ from app.models import Building
 
 log = get_logger(__name__)
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Основной overpass-api.de часто отдаёт 504 под нагрузкой. Зеркала-фолбэки
+# (maps.mail.ru/VK стабильно быстрый). Порядок = приоритет.
+OVERPASS_MIRRORS = [
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
+OVERPASS_URL = OVERPASS_MIRRORS[0]
 # Overpass отклоняет запросы без внятного User-Agent (406 Not Acceptable)
 HEADERS = {"User-Agent": "DubaiCostETL/0.1 (self-hosted real-estate map, non-commercial MVP)"}
 
@@ -41,6 +48,31 @@ PILOT_AREAS: dict[str, tuple[float, float, float, float]] = {
     "international_city": (25.155, 55.395, 25.185, 55.425),  # International City
     "al_barsha": (25.100, 55.190, 25.125, 55.220),         # Al Barsha
     "dubai_hills": (25.100, 55.240, 25.135, 55.275),       # Dubai Hills Estate
+    # Догрузка плотных жилых районов (заполнить пустоты на общей карте)
+    "al_qusais_nahda": (25.255, 55.365, 25.300, 55.420),   # Al Qusais / Al Nahda
+    "muhaisnah_mirdif": (25.205, 55.400, 25.260, 55.460),  # Muhaisnah / Mirdif
+    "nad_al_sheba": (25.145, 55.300, 25.190, 55.360),      # Nad Al Sheba
+    "dubailand_sports": (25.025, 55.205, 25.080, 55.265),  # Sports City / Motor City / Arjan
+    "furjan_gardens": (25.015, 55.115, 25.060, 55.180),    # Al Furjan / Discovery Gardens / JVT
+    "silicon_oasis": (25.100, 55.365, 25.145, 55.410),     # Dubai Silicon Oasis
+    # Центральные дыры между кластерами
+    "al_quoz": (25.110, 55.210, 25.165, 55.262),           # Al Quoz (пром + жильё)
+    "jumeirah_coast": (25.150, 55.190, 25.212, 55.248),    # Umm Suqeim / Jumeirah / Al Safa (побережье)
+    "al_wasl_safa": (25.175, 55.245, 25.220, 55.278),      # Al Wasl / Al Safa / City Walk
+    # Оставшиеся жилые зоны (восток, юг, запад-виллы)
+    "al_warqa": (25.155, 55.440, 25.205, 55.495),          # Al Warqa
+    "nadd_hamar_rashidiya": (25.210, 55.385, 25.258, 55.445),  # Nadd Al Hamar / Al Rashidiya
+    "khawaneej_mirdif_e": (25.200, 55.455, 25.252, 55.512),    # Al Khawaneej / вост. Mirdif
+    "liwan_academic": (25.095, 55.400, 25.160, 55.472),        # Liwan / Academic City / DSO-юг
+    "the_villa_wadisafa": (25.025, 55.285, 25.082, 55.352),    # The Villa / Wadi Al Safa
+    "town_square_remraam": (24.985, 55.228, 25.048, 55.302),   # Town Square / Remraam / Ranches
+    "springs_meadows": (25.048, 55.178, 25.108, 55.252),       # Springs / Meadows / JLT-юг
+    "jge_furjan_n": (25.028, 55.142, 25.088, 55.202),          # Jumeirah Golf Estates / Al Furjan-север
+    # Юг (ниже 24.92) и дальние окраины
+    "dubai_south_expo": (24.840, 55.120, 24.945, 55.260),      # Dubai South / Expo City / Al Maktoum
+    "jebel_ali_west": (24.950, 54.990, 25.055, 55.100),        # Jebel Ali порт/FZ/village
+    "al_barsha_s_jvt2": (25.030, 55.190, 25.078, 55.248),      # Al Barsha South / JVT-довесок
+    "mizhar_muhaisnah_n": (25.240, 55.440, 25.302, 55.512),    # Mizhar / сев. Muhaisnah
 }
 
 QUERY_TEMPLATE = """
@@ -117,11 +149,23 @@ def element_to_feature(el: dict) -> dict | None:
     }
 
 
+def _overpass_post(query: str) -> dict:
+    """POST к Overpass с перебором зеркал: первое ответившее 200 выигрывает."""
+    last_exc: Exception | None = None
+    for url in OVERPASS_MIRRORS:
+        try:
+            resp = httpx.post(url, data={"data": query}, timeout=300, headers=HEADERS)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:  # noqa: BLE001 — сетевой сбой/504, пробуем следующее зеркало
+            log.warning("overpass_mirror_failed", url=url, error=str(exc))
+            last_exc = exc
+    raise last_exc or RuntimeError("all overpass mirrors failed")
+
+
 def fetch_area(area: str, bbox: tuple[float, float, float, float]) -> int:
     query = QUERY_TEMPLATE.format(bbox=",".join(str(c) for c in bbox))
-    resp = httpx.post(OVERPASS_URL, data={"data": query}, timeout=300, headers=HEADERS)
-    resp.raise_for_status()
-    elements = resp.json().get("elements", [])
+    elements = _overpass_post(query).get("elements", [])
     log.info("overpass_fetched", area=area, elements=len(elements))
 
     db = SessionLocal()

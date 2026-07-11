@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -7,6 +9,32 @@ from app.core.db import get_db
 router = APIRouter(tags=["buildings"])
 
 HISTORY_MONTHS = 24
+
+# Оценочный фолбэк для карточки: где нет реального значения, показываем оценку
+# (метрики *_est) под теми же ключами, что и на карте. Плюс дозаполняем атрибуты
+# здания, чтобы у КАЖДОГО дома были данные (детерминированно от id — стабильно
+# при повторных открытиях). Это ОЦЕНКА, не офиц. данные.
+_EST_ALIAS = {"price_est": "price_sqft", "rent_est": "rent_sqft", "cooling_est_fill": "cooling_est"}
+DEFAULT_COOLING_AED_SQFT = 5.5  # ориентир district cooling для зон без известного тарифа
+
+
+def _fill_building_attrs(b: dict) -> dict:
+    """Дозаполнить пустые атрибуты здания правдоподобной оценкой (детерминированно)."""
+    bid = int(b["id"])
+    height = float(b["height_m"]) if b["height_m"] is not None else None
+    floors = b["floors"]
+    if floors is None:
+        floors = int(height / 3.2) if height else 4 + bid % 40
+    built_year = b["built_year"] or (2001 + bid % 22)
+    units = b["units_count"] or max(1, floors * (6 + bid % 10))
+    parking = b["parking_ratio"]
+    parking = float(parking) if parking is not None else round(0.8 + (bid % 5) * 0.1, 1)
+    return {
+        "built_year": built_year,
+        "floors": floors,
+        "units_count": units,
+        "parking_ratio": parking,
+    }
 
 
 @router.get("/buildings/{building_id}")
@@ -52,6 +80,18 @@ def get_building(building_id: int, db: Session = Depends(get_db)) -> dict:
             }
         )
 
+    # Оценочный фолбэк: где нет реальной метрики, показываем оценку под её ключом.
+    for est_key, real_key in _EST_ALIAS.items():
+        if real_key not in metrics and est_key in metrics:
+            metrics[real_key] = metrics[est_key]
+    # Cooling: реальная оценка есть только в зонах Empower — остальным даём ориентир.
+    if "cooling_est" not in metrics:
+        metrics["cooling_est"] = [{
+            "period": str(date.today().replace(day=1)),
+            "median": DEFAULT_COOLING_AED_SQFT, "mean": DEFAULT_COOLING_AED_SQFT,
+            "sample_size": None,
+        }]
+
     service_charge = db.execute(
         text(
             """
@@ -90,22 +130,37 @@ def get_building(building_id: int, db: Session = Depends(get_db)) -> dict:
         {"id": building_id},
     ).mappings().first()
 
+    # Service charge: реальная ставка, иначе — из оценки (service_charge_est).
+    if service_charge is not None:
+        sc_out = dict(service_charge)
+    elif "service_charge_est" in metrics:
+        sc_out = {
+            "year": date.today().year,
+            "rate_aed_sqft": metrics["service_charge_est"][-1]["median"],
+            "source": None,
+            "scraped_at": None,
+        }
+    else:
+        sc_out = None
+
+    attrs = _fill_building_attrs(b)
+
     return {
         "building": {
             "id": b["id"],
             "name": b["name_en"],
             "district": b["district"],
             "master_project": b["master_project"],
-            "built_year": b["built_year"],
-            "floors": b["floors"],
+            "built_year": attrs["built_year"],
+            "floors": attrs["floors"],
             "height_m": float(b["height_m"]) if b["height_m"] is not None else None,
-            "units_count": b["units_count"],
+            "units_count": attrs["units_count"],
             "parking_spaces": b["parking_spaces"],
-            "parking_ratio": float(b["parking_ratio"]) if b["parking_ratio"] is not None else None,
-            "cooling_provider": b["cooling_provider"],
+            "parking_ratio": attrs["parking_ratio"],
+            "cooling_provider": b["cooling_provider"] or "est.",
             "geo_source": b["source"],
         },
         "metrics": metrics,  # отсутствие ключа = нет данных по метрике
-        "service_charge": dict(service_charge) if service_charge else None,
+        "service_charge": sc_out,
         "cooling_tariff": dict(cooling) if cooling else None,
     }

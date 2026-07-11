@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.map import COLUMN_LAYER_EST, EST_FALLBACK
 from app.core.db import get_db
 from app.models import METRICS
 
@@ -15,16 +16,24 @@ router = APIRouter(tags=["tiles"])
 
 BUILDING_COLUMN_LAYERS = {"built_year": "built_year", "parking_ratio": "parking_ratio"}
 
+# Тот же estimate-фолбэк, что и в /api/map: где нет реального значения слоя,
+# подмешиваем оценку (метрики *_est). На чистой БД без оценок вернёт реальное.
 MVT_METRIC_SQL = text(
     """
     WITH mvtgeom AS (
         SELECT ST_AsMVTGeom(ST_Transform(b.geom, 3857),
                             ST_TileEnvelope(:z, :x, :y)) AS geom,
-               b.id, b.name_en AS name, b.height_m,
-               m.value_median AS value, m.sample_size
+               b.id, b.name_en AS name,
+               b.height_m::double precision AS height_m,
+               -- numeric в MVT кодируется как СТРОКА (баг PostGIS) — MapLibre-выражения
+               -- ждут число; приводим к double precision, иначе слой не красится
+               COALESCE(m.value_median, e.value_median)::double precision AS value,
+               COALESCE(m.sample_size, e.sample_size) AS sample_size
         FROM buildings b
         LEFT JOIN latest_building_metrics m
           ON m.building_id = b.id AND m.metric = :metric
+        LEFT JOIN latest_building_metrics e
+          ON e.building_id = b.id AND e.metric = :est_metric
         WHERE b.geom && ST_Transform(ST_TileEnvelope(:z, :x, :y), 4326)
     )
     SELECT ST_AsMVT(mvtgeom.*, 'buildings') FROM mvtgeom
@@ -41,16 +50,18 @@ def get_tile(
 
     if layer in METRICS:
         sql = MVT_METRIC_SQL
-        params = {"z": z, "x": x, "y": y, "metric": layer}
+        params = {"z": z, "x": x, "y": y, "metric": layer,
+                  "est_metric": EST_FALLBACK.get(layer, "__none__")}
     elif layer in BUILDING_COLUMN_LAYERS:
-        col = BUILDING_COLUMN_LAYERS[layer]
+        val_expr = COLUMN_LAYER_EST[layer]  # COALESCE(колонка, оценка) — нет серых
         sql = text(
             f"""
             WITH mvtgeom AS (
                 SELECT ST_AsMVTGeom(ST_Transform(b.geom, 3857),
                                     ST_TileEnvelope(:z, :x, :y)) AS geom,
-                       b.id, b.name_en AS name, b.height_m,
-                       b.{col} AS value, NULL::int AS sample_size
+                       b.id, b.name_en AS name,
+                       b.height_m::double precision AS height_m,
+                       ({val_expr})::double precision AS value, NULL::int AS sample_size
                 FROM buildings b
                 WHERE b.geom && ST_Transform(ST_TileEnvelope(:z, :x, :y), 4326)
             )
@@ -65,5 +76,7 @@ def get_tile(
     return Response(
         content=bytes(tile) if tile else b"",
         media_type="application/vnd.mapbox-vector-tile",
-        headers={"Cache-Control": "public, max-age=3600"},
+        # 5 минут: тайлы меняются при пересборке данных; долгий кэш ловит юзеров
+        # на устаревших/битых тайлах. Смена формата — через ?v= на фронте.
+        headers={"Cache-Control": "public, max-age=300"},
     )

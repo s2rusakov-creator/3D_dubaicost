@@ -8,13 +8,14 @@ import {
   POI_DEFAULT_COLOR,
   POI_STYLES,
 } from "../../overlays.config";
+import { LANDMARKS, type Landmark } from "../../landmarks.config";
 import { useAppStore } from "../../store";
 
 // Бесплатная подложка без ключей и лимитов. Если стиль недоступен,
 // альтернативы: .../styles/liberty, .../styles/positron
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 
-const DUBAI_CENTER: [number, number] = [55.2744, 25.1972];
+const DUBAI_CENTER: [number, number] = [55.25, 25.12];
 const SOURCE_ID = "buildings";
 const LAYER_3D_ID = "buildings-3d";
 const DEMO_SOURCE = "demographics";
@@ -24,6 +25,9 @@ const POI_SOURCE = "pois";
 const POI_CIRCLE = "poi-circle";
 const POI_LABEL = "poi-label";
 const MIN_FETCH_ZOOM = 13;
+// Версия схемы тайлов: тайлы кэшируются браузером (Cache-Control), при смене
+// формата (например, фикс строкового value) поднять — обойдёт устаревший кэш.
+const TILES_VERSION = 2;
 
 function buildColorExpression(layerId: string): unknown {
   const def = LAYERS.find((l) => l.id === layerId)!;
@@ -50,6 +54,24 @@ function poiColorExpression(): unknown {
   return match;
 }
 
+// Круглый фото-пин достопримечательности (как в Яндекс.Картах)
+function createLandmarkElement(lm: Landmark): HTMLDivElement {
+  const el = document.createElement("div");
+  el.title = lm.name;
+  el.style.cssText = [
+    "width:46px",
+    "height:46px",
+    "border-radius:50%",
+    `background-image:url('${lm.photo}')`,
+    "background-size:cover",
+    "background-position:center",
+    "border:2px solid #ffffff",
+    "box-shadow:0 2px 8px rgba(0,0,0,0.55)",
+    "cursor:pointer",
+  ].join(";");
+  return el;
+}
+
 export function MapView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -63,11 +85,13 @@ export function MapView() {
   layerRef.current = activeLayerId;
   const showPoisRef = useRef(showPois);
   showPoisRef.current = showPois;
-  // Кэш уже полученных зданий/POI (по id) — bbox-фетч на каждый moveend иначе
-  // затирал бы объекты, выпавшие из текущей вьюпорты, хотя они не изменились
-  const featuresCacheRef = useRef<Map<number, GeoJSON.Feature>>(new Map());
+  // Кэш POI (по id) — bbox-фетч на каждый moveend иначе затирал бы объекты,
+  // выпавшие из вьюпорты, хотя они не изменились. Здания теперь на векторных
+  // тайлах (грузятся сами), кэш им не нужен.
   const poiCacheRef = useRef<Map<number, GeoJSON.Feature>>(new Map());
   const demoLoadedRef = useRef(false);
+  // Фото-пины достопримечательностей (HTML-маркеры) — создаются раз, тумблятся с POI
+  const landmarkMarkersRef = useRef<maplibregl.Marker[]>([]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -76,36 +100,14 @@ export function MapView() {
       container: containerRef.current,
       style: MAP_STYLE,
       center: DUBAI_CENTER,
-      zoom: 14,
-      pitch: 55,
+      zoom: 10.5,
+      pitch: 45,
       bearing: -20,
       attributionControl: { compact: true },
     });
     mapRef.current = map;
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
-
-    const fetchBuildings = async () => {
-      if (map.getZoom() < MIN_FETCH_ZOOM) return;
-      const b = map.getBounds();
-      const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
-      try {
-        const resp = await fetch(`/api/map?bbox=${bbox}&layer=${layerRef.current}`);
-        if (!resp.ok) return;
-        const geojson = await resp.json();
-        const cache = featuresCacheRef.current;
-        for (const feature of geojson.features as GeoJSON.Feature[]) {
-          const id = feature.properties?.id;
-          if (id != null) cache.set(id, feature);
-        }
-        (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData({
-          type: "FeatureCollection",
-          features: Array.from(cache.values()),
-        });
-      } catch {
-        // API недоступен (dev без бэкенда) — карта остаётся пустой
-      }
-    };
 
     const fetchPois = async () => {
       if (!showPoisRef.current || map.getZoom() < MIN_FETCH_ZOOM) return;
@@ -153,17 +155,22 @@ export function MapView() {
         paint: { "line-color": "#c8ccd4", "line-width": 1, "line-opacity": 0.5 },
       });
 
+      // Векторные тайлы (MVT) — MapLibre сам подгружает видимую область на любом
+      // зуме, без лимита фич и без ручной дозагрузки. Слой в пути URL = цвет тайла.
       map.addSource(SOURCE_ID, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-        // По умолчанию GeoJSON-источник упрощает геометрию на дальних зумах
-        // (tolerance 0.375) — мелкие полигоны зданий схлопываются и исчезают
-        tolerance: 0,
+        type: "vector",
+        tiles: [`${window.location.origin}/api/tiles/${layerRef.current}/{z}/{x}/{y}.pbf?v=${TILES_VERSION}`],
+        minzoom: 0,
+        // Бэкенд генерит тайл на любом зуме — держим высокий maxzoom, иначе выше
+        // него MapLibre «оверзумит» грубый тайл, а fill-extrusion на оверзуме
+        // не рисуется → здания пропадают на приближении
+        maxzoom: 20,
       });
       map.addLayer({
         id: LAYER_3D_ID,
         type: "fill-extrusion",
         source: SOURCE_ID,
+        "source-layer": "buildings",
         paint: {
           "fill-extrusion-color": buildColorExpression(layerRef.current) as never,
           "fill-extrusion-height": ["coalesce", ["get", "height_m"], 20],
@@ -208,11 +215,24 @@ export function MapView() {
         },
       });
 
-      fetchBuildings();
+      // Фото-пины достопримечательностей — создаём один раз, показываем с оверлеем POI
+      landmarkMarkersRef.current = LANDMARKS.map((lm) => {
+        const el = createLandmarkElement(lm);
+        const marker = new maplibregl.Marker({ element: el }).setLngLat([lm.lng, lm.lat]);
+        el.addEventListener("click", () => {
+          new maplibregl.Popup({ offset: 26, closeButton: false })
+            .setLngLat([lm.lng, lm.lat])
+            .setHTML(`<strong>${lm.name}</strong>`)
+            .addTo(map);
+        });
+        return marker;
+      });
+      if (showPoisRef.current) {
+        landmarkMarkersRef.current.forEach((m) => m.addTo(map));
+      }
     });
 
     map.on("moveend", () => {
-      void fetchBuildings();
       void fetchPois();
     });
 
@@ -263,14 +283,14 @@ export function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getLayer(LAYER_3D_ID)) return;
-    // value в кэше специфичен для слоя — при смене слоя кэш неактуален
-    featuresCacheRef.current.clear();
+    // Слой закодирован в URL тайла (значение/цвет) — меняем tiles и перекрашиваем
+    const src = map.getSource(SOURCE_ID) as maplibregl.VectorTileSource | undefined;
+    src?.setTiles([`${window.location.origin}/api/tiles/${activeLayerId}/{z}/{x}/{y}.pbf?v=${TILES_VERSION}`]);
     map.setPaintProperty(
       LAYER_3D_ID,
       "fill-extrusion-color",
       buildColorExpression(activeLayerId) as never
     );
-    map.fire("moveend"); // триггерит fetchBuildings с новым слоем
   }, [activeLayerId]);
 
   // Демография: ленивая загрузка один раз + переключение видимости
@@ -302,7 +322,13 @@ export function MapView() {
     const vis = showPois ? "visible" : "none";
     map.setLayoutProperty(POI_CIRCLE, "visibility", vis);
     map.setLayoutProperty(POI_LABEL, "visibility", vis);
-    if (showPois) map.fire("moveend");
+    // Фото-пины достопримечательностей — добавляем/убираем вместе с оверлеем
+    if (showPois) {
+      landmarkMarkersRef.current.forEach((m) => m.addTo(map));
+      map.fire("moveend");
+    } else {
+      landmarkMarkersRef.current.forEach((m) => m.remove());
+    }
   }, [showPois]);
 
   return <div ref={containerRef} className="map-container" />;

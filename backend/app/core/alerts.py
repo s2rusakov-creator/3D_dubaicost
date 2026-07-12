@@ -7,8 +7,10 @@ log = get_logger(__name__)
 
 
 def send_alert(message: str) -> None:
-    """Шлёт алерт в Telegram, если настроен; иначе пишет в лог с уровнем error."""
-    if settings.alert_telegram_bot_token and settings.alert_telegram_chat_id:
+    """Шлёт алерт в Telegram, если явно включено (ALERTS_ENABLED) и настроен токен;
+    иначе просто пишет в лог с уровнем error. Спрятано по умолчанию: сейчас нет
+    живого ночного цикла на реальных данных — алертить не о чем."""
+    if settings.alerts_enabled and settings.alert_telegram_bot_token and settings.alert_telegram_chat_id:
         try:
             httpx.post(
                 f"https://api.telegram.org/bot{settings.alert_telegram_bot_token}/sendMessage",

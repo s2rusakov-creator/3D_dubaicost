@@ -27,6 +27,11 @@ log = get_logger(__name__)
 EST_METRICS = ("price_est", "rent_est", "service_charge_est", "cooling_est_fill")
 DEFAULT_YIELD = 0.071  # запасное значение, если реального пересечения цена/аренда нет
 DEFAULT_SC_RATIO = 0.011  # service charge как доля от цены (если нет реального пересечения)
+# Детерминированный разброс цены на КАЖДЫЙ дом вокруг медианы района (±~33%),
+# чтобы карта была не сплошным блоком, а как настоящий хитмап. hashtext даёт
+# стабильный псевдослучай по id (не зависит от порядка/соседства). Аренда и SC
+# считаются от price_est — разброс каскадом переходит и на них.
+_PRICE_VAR = "(0.68 + mod(abs(hashtext(b.id::text)), 1000) / 1000.0 * 0.67)"
 
 
 def _clear(db) -> None:
@@ -115,7 +120,9 @@ def main() -> None:
                     f"""
                     INSERT INTO building_metrics
                         (building_id, period, metric, value_median, value_mean, sample_size, computed_at)
-                    SELECT b.id, {period}, 'price_est', :val, :val, 0, now()
+                    SELECT b.id, {period}, 'price_est',
+                           round((:val * {_PRICE_VAR})::numeric, 1),
+                           round((:val * {_PRICE_VAR})::numeric, 1), 0, now()
                     FROM buildings b
                     WHERE ST_Y(b.centroid::geometry) BETWEEN :a AND :b
                       AND ST_X(b.centroid::geometry) BETWEEN :c AND :d
@@ -134,7 +141,9 @@ def main() -> None:
                 f"""
                 INSERT INTO building_metrics
                     (building_id, period, metric, value_median, value_mean, sample_size, computed_at)
-                SELECT b.id, {period}, 'price_est', :val, :val, 0, now()
+                SELECT b.id, {period}, 'price_est',
+                       round((:val * {_PRICE_VAR})::numeric, 1),
+                       round((:val * {_PRICE_VAR})::numeric, 1), 0, now()
                 FROM buildings b
                 WHERE NOT EXISTS (SELECT 1 FROM latest_building_metrics r
                                   WHERE r.building_id=b.id AND r.metric='price_sqft')

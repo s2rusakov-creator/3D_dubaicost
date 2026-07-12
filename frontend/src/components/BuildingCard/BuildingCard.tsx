@@ -1,5 +1,6 @@
 /** Карточка здания: атрибуты, метрики и явное состояние "No data" для отсутствующих. */
 import { useEffect, useState } from "react";
+import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import "./BuildingCard.css";
 
@@ -33,11 +34,12 @@ function latest(points?: MetricPoint[]): MetricPoint | null {
 }
 
 function Row({ label, value, unit }: { label: string; value: string | number | null; unit?: string }) {
+  const t = useT();
   return (
     <div className="card-row">
       <span className="card-label">{label}</span>
       {value === null || value === undefined ? (
-        <span className="card-nodata">No data</span>
+        <span className="card-nodata">{t("card.no_data")}</span>
       ) : (
         <span className="card-value">
           {typeof value === "number" ? value.toLocaleString("en-US", { maximumFractionDigits: 1 }) : value}
@@ -49,6 +51,7 @@ function Row({ label, value, unit }: { label: string; value: string | number | n
 }
 
 export function BuildingCard() {
+  const t = useT();
   const buildingId = useAppStore((s) => s.selectedBuildingId);
   const setSelectedBuilding = useAppStore((s) => s.setSelectedBuilding);
   const [detail, setDetail] = useState<BuildingDetail | null>(null);
@@ -92,7 +95,7 @@ export function BuildingCard() {
         </button>
       </div>
 
-      {loading && <div className="card-loading">Loading…</div>}
+      {loading && <div className="card-loading">{t("card.loading")}</div>}
 
       {detail && (
         <>
@@ -103,62 +106,54 @@ export function BuildingCard() {
           </div>
 
           <div className="card-section">
-            <Row label="Price" value={price?.median ?? null} unit="AED/sqft" />
-            <Row label="Rent" value={rent?.median ?? null} unit="AED/sqft/yr" />
+            <Row label={t("card.price")} value={price?.median ?? null} unit={t("u.aed_sqft")} />
+            <Row label={t("card.rent")} value={rent?.median ?? null} unit={t("u.aed_sqft_yr")} />
             <Row
-              label="Service Charge"
+              label={t("card.service_charge")}
               value={detail.service_charge?.rate_aed_sqft ?? null}
-              unit={detail.service_charge ? `AED/sqft/yr (${detail.service_charge.year})` : undefined}
+              unit={detail.service_charge ? `${t("u.aed_sqft_yr")} (${detail.service_charge.year})` : undefined}
             />
+            <Row label={t("card.cooling")} value={coolingRate} unit={t("u.aed_sqft_yr")} />
             <Row
-              label="Cooling (est.)"
-              value={coolingRate}
-              unit="AED/sqft/yr"
-            />
-            <Row
-              label="Cooling provider"
+              label={t("card.cooling_provider")}
               value={detail.cooling_tariff?.provider ?? detail.building.cooling_provider}
             />
           </div>
 
           <div className="card-section true-cost">
-            <div className="card-section-title">True cost of ownership (est.)</div>
-            <Row label="Running costs" value={runningPerSqft} unit="AED/sqft/yr" />
+            <div className="card-section-title">{t("card.true_cost")}</div>
+            <Row label={t("card.running_costs")} value={runningPerSqft} unit={t("u.aed_sqft_yr")} />
             {runningPerSqft !== null && (
               <>
                 <Row
-                  label={`Example ${EXAMPLE_SQFT.toLocaleString()} sqft / yr`}
+                  label={`${t("card.example")} ${EXAMPLE_SQFT.toLocaleString()} ${t("u.sqft")} ${t("card.per_year")}`}
                   value={runningPerSqft * EXAMPLE_SQFT}
                   unit="AED"
                 />
                 <Row
-                  label={`Example ${EXAMPLE_SQFT.toLocaleString()} sqft / mo`}
+                  label={`${t("card.example")} ${EXAMPLE_SQFT.toLocaleString()} ${t("u.sqft")} ${t("card.per_month")}`}
                   value={(runningPerSqft * EXAMPLE_SQFT) / 12}
                   unit="AED"
                 />
               </>
             )}
-            {coolingRate !== null && (
-              <div className="card-source">
-                Cooling is an estimate from published tariffs, not a bill
-              </div>
-            )}
+            {coolingRate !== null && <div className="card-source">{t("card.cooling_note")}</div>}
           </div>
 
           <div className="card-section">
-            <Row label="Built Year" value={detail.building.built_year} />
-            <Row label="Floors" value={detail.building.floors} />
-            <Row label="Units" value={detail.building.units_count} />
-            <Row label="Parking Ratio" value={detail.building.parking_ratio} />
+            <Row label={t("card.built_year")} value={detail.building.built_year} />
+            <Row label={t("card.floors")} value={detail.building.floors} />
+            <Row label={t("card.units")} value={detail.building.units_count} />
+            <Row label={t("card.parking")} value={detail.building.parking_ratio} />
           </div>
 
           {price?.sample_size != null && (
             <div className="card-source">
-              Sales sample: {price.sample_size} tx · {price.period}
+              {t("card.sales_sample")}: {price.sample_size} tx · {price.period}
             </div>
           )}
           {detail.building.geo_source && (
-            <div className="card-source">Geometry: {detail.building.geo_source}</div>
+            <div className="card-source">{t("card.geometry")}: {detail.building.geo_source}</div>
           )}
         </>
       )}

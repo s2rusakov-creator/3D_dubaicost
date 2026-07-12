@@ -4,6 +4,7 @@
  * и отдельная секция независимых оверлеев (демография, POI).
  */
 import { useState } from "react";
+import { useT } from "../../i18n";
 import { LAYERS } from "../../layers.config";
 import { COMMUNITY_STYLES, POI_STYLES } from "../../overlays.config";
 import { useAppStore } from "../../store";
@@ -14,6 +15,7 @@ function formatThreshold(value: number): string {
 }
 
 export function MapLayerPanel() {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   const activeLayerId = useAppStore((s) => s.activeLayerId);
   const setActiveLayer = useAppStore((s) => s.setActiveLayer);
@@ -28,7 +30,7 @@ export function MapLayerPanel() {
   return (
     <div className="layer-panel">
       <button className="layer-panel-header" onClick={() => setCollapsed(!collapsed)}>
-        <span>Map Layer</span>
+        <span>{t("panel.title")}</span>
         <span className={`chevron ${collapsed ? "up" : ""}`}>▾</span>
       </button>
 
@@ -44,7 +46,7 @@ export function MapLayerPanel() {
                 </span>
               ))}
             </div>
-            <div className="legend-unit">{active.unit}</div>
+            <div className="legend-unit">{t(`unit.${active.id}`)}</div>
           </div>
 
           <ul className="layer-list">
@@ -57,7 +59,7 @@ export function MapLayerPanel() {
                     onClick={() => setActiveLayer(layer.id)}
                   >
                     <span className="layer-icon">{layer.icon}</span>
-                    <span className="layer-title">{layer.title}</span>
+                    <span className="layer-title">{t(`layer.${layer.id}`)}</span>
                     <span className={`toggle ${isActive ? "on" : ""}`}>
                       <span className="toggle-knob" />
                     </span>
@@ -68,7 +70,7 @@ export function MapLayerPanel() {
           </ul>
 
           <div className="overlay-section">
-            <div className="overlay-title">Оверлеи</div>
+            <div className="overlay-title">{t("panel.overlays")}</div>
             <ul className="layer-list">
               <li>
                 <button
@@ -76,7 +78,7 @@ export function MapLayerPanel() {
                   onClick={toggleDemographics}
                 >
                   <span className="layer-icon">👥</span>
-                  <span className="layer-title">Диаспоры по районам</span>
+                  <span className="layer-title">{t("overlay.demographics")}</span>
                   <span className={`toggle ${showDemographics ? "on" : ""}`}>
                     <span className="toggle-knob" />
                   </span>
@@ -88,7 +90,7 @@ export function MapLayerPanel() {
                   onClick={togglePois}
                 >
                   <span className="layer-icon">📍</span>
-                  <span className="layer-title">Достопримечательности</span>
+                  <span className="layer-title">{t("overlay.pois")}</span>
                   <span className={`toggle ${showPois ? "on" : ""}`}>
                     <span className="toggle-knob" />
                   </span>
@@ -98,24 +100,22 @@ export function MapLayerPanel() {
 
             {showDemographics && (
               <div className="overlay-legend">
-                {Object.values(COMMUNITY_STYLES).map((s) => (
-                  <div className="overlay-legend-row" key={s.label}>
+                {Object.entries(COMMUNITY_STYLES).map(([key, s]) => (
+                  <div className="overlay-legend-row" key={key}>
                     <span className="swatch" style={{ background: s.color }} />
-                    <span>{s.label}</span>
+                    <span>{t(`community.${key}`)}</span>
                   </div>
                 ))}
-                <div className="overlay-disclaimer">
-                  Ориентировочно, по открытым источникам — не официальная статистика
-                </div>
+                <div className="overlay-disclaimer">{t("disclaimer.demographics")}</div>
               </div>
             )}
 
             {showPois && (
               <div className="overlay-legend">
-                {Object.values(POI_STYLES).map((s) => (
-                  <div className="overlay-legend-row" key={s.label}>
+                {Object.entries(POI_STYLES).map(([key, s]) => (
+                  <div className="overlay-legend-row" key={key}>
                     <span className="swatch swatch-round" style={{ background: s.color }} />
-                    <span>{s.label}</span>
+                    <span>{t(`poi.${key}`)}</span>
                   </div>
                 ))}
               </div>

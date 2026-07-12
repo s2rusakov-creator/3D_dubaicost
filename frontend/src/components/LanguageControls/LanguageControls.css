@@ -1,0 +1,95 @@
+/* Модалка выбора языка */
+.lang-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 14, 0.82);
+  backdrop-filter: blur(4px);
+}
+.lang-modal {
+  background: #161a22;
+  border: 1px solid #2a2f3a;
+  border-radius: 16px;
+  padding: 32px 36px;
+  text-align: center;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  max-width: 90vw;
+}
+.lang-modal-globe {
+  font-size: 44px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+.lang-modal-title {
+  color: #e6e9ef;
+  font-size: 15px;
+  opacity: 0.85;
+  margin-bottom: 22px;
+}
+.lang-modal-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.lang-modal-btn {
+  min-width: 130px;
+  padding: 14px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e6e9ef;
+  background: #1f2530;
+  border: 1px solid #333a48;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+.lang-modal-btn:hover {
+  background: #2a3140;
+  border-color: #4a86ff;
+}
+.lang-modal-btn:active {
+  transform: translateY(1px);
+}
+.lang-modal-sub {
+  margin-top: 24px;
+  color: #7a8291;
+  font-size: 12px;
+}
+
+/* Компактный переключатель языка (левый верхний угол) */
+.lang-switcher {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 500;
+  display: flex;
+  gap: 2px;
+  background: rgba(22, 26, 34, 0.9);
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  padding: 3px;
+  backdrop-filter: blur(6px);
+}
+.lang-btn {
+  min-width: 34px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9aa0aa;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lang-btn:hover {
+  color: #e6e9ef;
+}
+.lang-btn.active {
+  color: #fff;
+  background: #3a6df0;
+}

@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     # Токен для admin-эндпоинтов (review-очередь matching'а). Пусто = эндпоинты закрыты.
     admin_token: str = ""
 
-    # Алерты (опционально)
+    # Алерты (опционально, по умолчанию выключены — сейчас нет живого ночного
+    # цикла на реальных данных, алертить не о чем; включить явно ALERTS_ENABLED=true)
+    alerts_enabled: bool = False
     alert_telegram_bot_token: str = ""
     alert_telegram_chat_id: str = ""
 

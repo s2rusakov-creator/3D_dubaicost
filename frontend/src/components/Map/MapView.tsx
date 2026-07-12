@@ -8,6 +8,7 @@ import {
   POI_DEFAULT_COLOR,
   POI_STYLES,
 } from "../../overlays.config";
+import { tr } from "../../i18n";
 import { LANDMARKS, type Landmark } from "../../landmarks.config";
 import { useAppStore } from "../../store";
 
@@ -27,7 +28,7 @@ const POI_LABEL = "poi-label";
 const MIN_FETCH_ZOOM = 13;
 // Версия схемы тайлов: тайлы кэшируются браузером (Cache-Control), при смене
 // формата (например, фикс строкового value) поднять — обойдёт устаревший кэш.
-const TILES_VERSION = 2;
+const TILES_VERSION = 3;
 
 function buildColorExpression(layerId: string): unknown {
   const def = LAYERS.find((l) => l.id === layerId)!;
@@ -264,7 +265,8 @@ export function MapView() {
       if (!f || f.geometry.type !== "Point") return;
       const name = f.properties?.name ?? "";
       const cat = String(f.properties?.category ?? "");
-      const catLabel = POI_STYLES[cat]?.label ?? cat;
+      const lang = useAppStore.getState().lang ?? "ru";
+      const catLabel = tr(`poi.${cat}`, lang) || POI_STYLES[cat]?.label || cat;
       poiPopup
         .setLngLat(f.geometry.coordinates as [number, number])
         .setHTML(`<strong>${name}</strong><br/><span style="opacity:.7">${catLabel}</span>`)

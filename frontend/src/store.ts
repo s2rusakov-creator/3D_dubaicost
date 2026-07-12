@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import { DEFAULT_LAYER_ID } from "./layers.config";
 
+export type Lang = "ru" | "en" | "es";
+
+function initialLang(): Lang | null {
+  if (typeof localStorage === "undefined") return null;
+  const v = localStorage.getItem("lang");
+  return v === "ru" || v === "en" || v === "es" ? v : null; // null => показать выбор языка
+}
+
 export interface DistrictInfo {
   name: string;
   dominant_community: string | null;
@@ -23,6 +31,10 @@ interface AppState {
   togglePois: () => void;
   selectedDistrict: DistrictInfo | null;
   setSelectedDistrict: (d: DistrictInfo | null) => void;
+
+  // Язык интерфейса (null = ещё не выбран, показываем модалку выбора)
+  lang: Lang | null;
+  setLang: (l: Lang) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -37,4 +49,14 @@ export const useAppStore = create<AppState>((set) => ({
   togglePois: () => set((s) => ({ showPois: !s.showPois })),
   selectedDistrict: null,
   setSelectedDistrict: (d) => set({ selectedDistrict: d }),
+
+  lang: initialLang(),
+  setLang: (l) => {
+    try {
+      localStorage.setItem("lang", l);
+    } catch {
+      // приватный режим — просто держим в памяти
+    }
+    set({ lang: l });
+  },
 }));

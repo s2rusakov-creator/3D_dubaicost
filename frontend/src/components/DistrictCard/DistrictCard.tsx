@@ -2,6 +2,7 @@
  * Карточка демо-зоны: ориентировочные диаспоры района.
  * ВАЖНО: данные помечены как ориентировочные (не официальная статистика).
  */
+import { districtDesc } from "../../districtI18n";
 import { useT } from "../../i18n";
 import { COMMUNITY_STYLES } from "../../overlays.config";
 import { useAppStore } from "../../store";
@@ -10,6 +11,7 @@ import "./DistrictCard.css";
 
 export function DistrictCard() {
   const t = useT();
+  const lang = useAppStore((s) => s.lang) ?? "en";
   const district = useAppStore((s) => s.selectedDistrict);
   const setSelectedDistrict = useAppStore((s) => s.setSelectedDistrict);
 
@@ -17,6 +19,10 @@ export function DistrictCard() {
 
   const communityKey = district.dominant_community;
   const community = communityKey ? COMMUNITY_STYLES[communityKey] : undefined;
+  // Описания района — переводим по языку; фолбэк на текст из API (рус.)
+  const desc = districtDesc(district.name, lang);
+  const communitiesText = desc?.communities ?? district.communities;
+  const noteText = desc?.note ?? district.note;
 
   return (
     <div className="district-card">
@@ -36,14 +42,14 @@ export function DistrictCard() {
         </div>
       )}
 
-      {district.communities && (
+      {communitiesText && (
         <div className="card-section">
           <div className="card-section-title">{t("district.who_lives")}</div>
-          <div className="district-text">{district.communities}</div>
+          <div className="district-text">{communitiesText}</div>
         </div>
       )}
 
-      {district.note && <div className="district-text district-note">{district.note}</div>}
+      {noteText && <div className="district-text district-note">{noteText}</div>}
 
       {district.sources && (
         <div className="card-source">{t("district.sources")}: {district.sources}</div>

@@ -1,9 +1,10 @@
 .building-card {
   position: absolute;
-  top: 16px;
+  /* ниже переключателя языка (top-left), чтобы не налезал на заголовок */
+  top: 56px;
   left: 16px;
   width: 320px;
-  max-height: calc(100vh - 32px);
+  max-height: calc(100vh - 72px);
   overflow-y: auto;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);

@@ -10,7 +10,7 @@ export function LanguageModal() {
     <div className="lang-modal-overlay">
       <div className="lang-modal">
         <div className="lang-modal-globe">🌐</div>
-        <div className="lang-modal-title">Выберите язык · Choose language · Elige idioma</div>
+        <div className="lang-modal-title">اختر اللغة · Choose language · Elige idioma</div>
         <div className="lang-modal-buttons">
           {LANGS.map((l) => (
             <button key={l.code} className="lang-modal-btn" onClick={() => setLang(l.code)}>
@@ -18,7 +18,7 @@ export function LanguageModal() {
             </button>
           ))}
         </div>
-        <div className="lang-modal-sub">DubaiCost · интерактивная карта стоимости недвижимости Дубая</div>
+        <div className="lang-modal-sub">DubaiCost · Dubai real-estate true-cost map</div>
       </div>
     </div>
   );

@@ -1,12 +1,12 @@
 import { create } from "zustand";
 import { DEFAULT_LAYER_ID } from "./layers.config";
 
-export type Lang = "ru" | "en" | "es";
+export type Lang = "ar" | "en" | "es";
 
 function initialLang(): Lang | null {
   if (typeof localStorage === "undefined") return null;
   const v = localStorage.getItem("lang");
-  return v === "ru" || v === "en" || v === "es" ? v : null; // null => показать выбор языка
+  return v === "ar" || v === "en" || v === "es" ? v : null; // null => показать выбор языка
 }
 
 export interface DistrictInfo {

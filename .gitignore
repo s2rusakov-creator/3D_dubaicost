@@ -25,6 +25,9 @@ backend/raw/
 delivery/*.dump
 delivery/*.tar.gz
 
+# Локальный скрипт запуска (личный хелпер разработчика)
+run.ps1
+
 # IDE
 .idea/
 .vscode/

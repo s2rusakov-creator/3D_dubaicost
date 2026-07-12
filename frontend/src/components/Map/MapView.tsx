@@ -25,7 +25,6 @@ const DEMO_LINE = "demographics-line";
 const POI_SOURCE = "pois";
 const POI_CIRCLE = "poi-circle";
 const POI_LABEL = "poi-label";
-const MIN_FETCH_ZOOM = 13;
 // Версия схемы тайлов: тайлы кэшируются браузером (Cache-Control), при смене
 // формата (например, фикс строкового value) поднять — обойдёт устаревший кэш.
 const TILES_VERSION = 3;
@@ -111,7 +110,8 @@ export function MapView() {
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
 
     const fetchPois = async () => {
-      if (!showPoisRef.current || map.getZoom() < MIN_FETCH_ZOOM) return;
+      // POI мало (~245) — грузим на любом зуме, чтобы были кликабельны и на обзоре
+      if (!showPoisRef.current) return;
       const b = map.getBounds();
       const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
       try {
@@ -189,7 +189,7 @@ export function MapView() {
         source: POI_SOURCE,
         layout: { visibility: "none" },
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 5, 16, 9],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 4, 13, 6, 16, 9],
           "circle-color": poiColorExpression() as never,
           "circle-stroke-width": 1.5,
           "circle-stroke-color": "#12151b",
@@ -200,7 +200,7 @@ export function MapView() {
         id: POI_LABEL,
         type: "symbol",
         source: POI_SOURCE,
-        minzoom: 14,
+        minzoom: 13,
         layout: {
           visibility: "none",
           "text-field": ["get", "name"],
@@ -216,17 +216,18 @@ export function MapView() {
         },
       });
 
-      // Фото-пины достопримечательностей — создаём один раз, показываем с оверлеем POI
+      // Фото-пины достопримечательностей — создаём один раз, показываем с оверлеем POI.
+      // Клик по пину открывает попап (фото + название) через встроенный setPopup —
+      // это надёжнее ручного addEventListener (сам тоглит попап).
       landmarkMarkersRef.current = LANDMARKS.map((lm) => {
         const el = createLandmarkElement(lm);
-        const marker = new maplibregl.Marker({ element: el }).setLngLat([lm.lng, lm.lat]);
-        el.addEventListener("click", () => {
-          new maplibregl.Popup({ offset: 26, closeButton: false })
-            .setLngLat([lm.lng, lm.lat])
-            .setHTML(`<strong>${lm.name}</strong>`)
-            .addTo(map);
-        });
-        return marker;
+        const popup = new maplibregl.Popup({ offset: 28, closeButton: true, maxWidth: "220px" }).setHTML(
+          `<div style="text-align:center">
+             <img src="${lm.photo}" alt="" style="width:190px;height:115px;object-fit:cover;border-radius:8px;display:block" />
+             <strong style="display:block;margin-top:6px;font-size:13px">${lm.name}</strong>
+           </div>`,
+        );
+        return new maplibregl.Marker({ element: el }).setLngLat([lm.lng, lm.lat]).setPopup(popup);
       });
       if (showPoisRef.current) {
         landmarkMarkersRef.current.forEach((m) => m.addTo(map));
@@ -265,7 +266,7 @@ export function MapView() {
       if (!f || f.geometry.type !== "Point") return;
       const name = f.properties?.name ?? "";
       const cat = String(f.properties?.category ?? "");
-      const lang = useAppStore.getState().lang ?? "ru";
+      const lang = useAppStore.getState().lang ?? "en";
       const catLabel = tr(`poi.${cat}`, lang) || POI_STYLES[cat]?.label || cat;
       poiPopup
         .setLngLat(f.geometry.coordinates as [number, number])

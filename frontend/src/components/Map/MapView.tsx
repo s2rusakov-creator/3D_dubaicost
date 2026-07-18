@@ -1,7 +1,8 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { MapboxOverlay } from "@deck.gl/mapbox";
 import { useEffect, useRef } from "react";
-import { LAYERS, NO_DATA_COLOR } from "../../layers.config";
+import { buildingsLighting, makeBuildingsLayer } from "./buildingsLayer";
 import {
   COMMUNITY_STYLES,
   DEFAULT_COMMUNITY_COLOR,
@@ -17,24 +18,12 @@ import { useAppStore } from "../../store";
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 
 const DUBAI_CENTER: [number, number] = [55.25, 25.12];
-const SOURCE_ID = "buildings";
-const LAYER_3D_ID = "buildings-3d";
 const DEMO_SOURCE = "demographics";
 const DEMO_FILL = "demographics-fill";
 const DEMO_LINE = "demographics-line";
 const POI_SOURCE = "pois";
 const POI_CIRCLE = "poi-circle";
 const POI_LABEL = "poi-label";
-// Версия схемы тайлов: тайлы кэшируются браузером (Cache-Control), при смене
-// формата (например, фикс строкового value) поднять — обойдёт устаревший кэш.
-const TILES_VERSION = 3;
-
-function buildColorExpression(layerId: string): unknown {
-  const def = LAYERS.find((l) => l.id === layerId)!;
-  const step: unknown[] = ["step", ["get", "value"], def.colors[0]];
-  def.thresholds.forEach((t, i) => step.push(t, def.colors[i + 1]));
-  return ["case", ["==", ["get", "value"], null], NO_DATA_COLOR, step];
-}
 
 function communityColorExpression(): unknown {
   const match: unknown[] = ["match", ["get", "dominant_community"]];
@@ -92,6 +81,11 @@ export function MapView() {
   const demoLoadedRef = useRef(false);
   // Фото-пины достопримечательностей (HTML-маркеры) — создаются раз, тумблятся с POI
   const landmarkMarkersRef = useRef<maplibregl.Marker[]>([]);
+  // deck.gl-оверлей со зданиями (окна/глянец) поверх MapLibre
+  const overlayRef = useRef<MapboxOverlay | null>(null);
+  // стабильный колбэк пикинга здания (deck пересобирается на смене слоя)
+  const pickBuilding = useRef((id: number) => setSelectedBuilding(id));
+  pickBuilding.current = (id: number) => setSelectedBuilding(id);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -108,6 +102,16 @@ export function MapView() {
     mapRef.current = map;
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+
+    // deck.gl-оверлей: здания с процедурными окнами/глянцем. interleaved=true —
+    // рендерится внутри стека MapLibre (корректная глубина с POI/демографией).
+    const overlay = new MapboxOverlay({
+      interleaved: true,
+      effects: [buildingsLighting],
+      layers: [makeBuildingsLayer(layerRef.current, (id) => pickBuilding.current(id))],
+    });
+    map.addControl(overlay as unknown as maplibregl.IControl);
+    overlayRef.current = overlay;
 
     const fetchPois = async () => {
       // POI мало (~245) — грузим на любом зуме, чтобы были кликабельны и на обзоре
@@ -133,7 +137,14 @@ export function MapView() {
     };
 
     map.on("load", () => {
-      // Порядок z: демография (по земле) < здания (3D) < POI-маркеры (сверху)
+      // Чистая тёмная подложка: прячем подписи улиц/районов/POI базовой карты,
+      // чтобы тепловая карта не спорила с текстом (стиль UrbanCost).
+      for (const l of map.getStyle().layers) {
+        if (l.type === "symbol") map.setLayoutProperty(l.id, "visibility", "none");
+      }
+
+      // Освещение/глянец зданий задаёт deck.gl (buildingsLighting). Порядок z:
+      // демография (по земле) < здания deck < POI-маркеры (сверху).
       map.addSource(DEMO_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -156,28 +167,7 @@ export function MapView() {
         paint: { "line-color": "#c8ccd4", "line-width": 1, "line-opacity": 0.5 },
       });
 
-      // Векторные тайлы (MVT) — MapLibre сам подгружает видимую область на любом
-      // зуме, без лимита фич и без ручной дозагрузки. Слой в пути URL = цвет тайла.
-      map.addSource(SOURCE_ID, {
-        type: "vector",
-        tiles: [`${window.location.origin}/api/tiles/${layerRef.current}/{z}/{x}/{y}.pbf?v=${TILES_VERSION}`],
-        minzoom: 0,
-        // Бэкенд генерит тайл на любом зуме — держим высокий maxzoom, иначе выше
-        // него MapLibre «оверзумит» грубый тайл, а fill-extrusion на оверзуме
-        // не рисуется → здания пропадают на приближении
-        maxzoom: 20,
-      });
-      map.addLayer({
-        id: LAYER_3D_ID,
-        type: "fill-extrusion",
-        source: SOURCE_ID,
-        "source-layer": "buildings",
-        paint: {
-          "fill-extrusion-color": buildColorExpression(layerRef.current) as never,
-          "fill-extrusion-height": ["coalesce", ["get", "height_m"], 20],
-          "fill-extrusion-opacity": 0.85,
-        },
-      });
+      // Здания рендерит deck.gl-оверлей (MVTLayer с теми же тайлами) — см. выше.
 
       map.addSource(POI_SOURCE, {
         type: "geojson",
@@ -238,12 +228,8 @@ export function MapView() {
       void fetchPois();
     });
 
-    map.on("click", LAYER_3D_ID, (e) => {
-      const id = e.features?.[0]?.properties?.id;
-      if (id != null) setSelectedBuilding(Number(id));
-    });
-    map.on("mouseenter", LAYER_3D_ID, () => (map.getCanvas().style.cursor = "pointer"));
-    map.on("mouseleave", LAYER_3D_ID, () => (map.getCanvas().style.cursor = ""));
+    // Клик/hover по зданию обрабатывает deck.gl (onClick + autoHighlight в
+    // makeBuildingsLayer) — здесь maplibre-обработчики зданий не нужны.
 
     // Клик по демо-зоне — открыть панель с ориентировочными данными
     map.on("click", DEMO_FILL, (e) => {
@@ -277,23 +263,19 @@ export function MapView() {
     map.on("mouseleave", POI_CIRCLE, () => (map.getCanvas().style.cursor = ""));
 
     return () => {
+      overlayRef.current = null;
       map.remove();
       mapRef.current = null;
     };
   }, [setSelectedBuilding, setSelectedDistrict]);
 
-  // Смена слоя: перекрасить и перезапросить данные без перезагрузки карты
+  // Смена слоя: пересобрать deck-слой зданий (URL тайла кодирует значение/цвет/высоту)
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.getLayer(LAYER_3D_ID)) return;
-    // Слой закодирован в URL тайла (значение/цвет) — меняем tiles и перекрашиваем
-    const src = map.getSource(SOURCE_ID) as maplibregl.VectorTileSource | undefined;
-    src?.setTiles([`${window.location.origin}/api/tiles/${activeLayerId}/{z}/{x}/{y}.pbf?v=${TILES_VERSION}`]);
-    map.setPaintProperty(
-      LAYER_3D_ID,
-      "fill-extrusion-color",
-      buildColorExpression(activeLayerId) as never
-    );
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    overlay.setProps({
+      layers: [makeBuildingsLayer(activeLayerId, (id) => pickBuilding.current(id))],
+    });
   }, [activeLayerId]);
 
   // Демография: ленивая загрузка один раз + переключение видимости
@@ -336,3 +318,4 @@ export function MapView() {
 
   return <div ref={containerRef} className="map-container" />;
 }
+

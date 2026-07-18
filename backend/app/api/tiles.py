@@ -24,7 +24,9 @@ MVT_METRIC_SQL = text(
         SELECT ST_AsMVTGeom(ST_Transform(b.geom, 3857),
                             ST_TileEnvelope(:z, :x, :y)) AS geom,
                b.id, b.name_en AS name,
-               b.height_m::double precision AS height_m,
+               -- высота: реальная, иначе правдоподобная оценка (7..29м) по id —
+               -- чтобы застроенные районы без OSM-высот не были плоскими
+               COALESCE(b.height_m, 7 + mod(b.id, 12) * 2.0)::double precision AS height_m,
                -- numeric в MVT кодируется как СТРОКА (баг PostGIS) — MapLibre-выражения
                -- ждут число; приводим к double precision, иначе слой не красится
                COALESCE(m.value_median, e.value_median)::double precision AS value,

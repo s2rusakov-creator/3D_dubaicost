@@ -85,50 +85,98 @@ function colorForFeature(layerId: string, props: Record<string, unknown>): [numb
 //  VS: пробрасываем высоту (м), план-координаты (м) и нормаль как varying.
 //  FS: на боковых гранях рисуем сетку окон (тёмные перемычки), часть «горит».
 // Цена-цвет сохраняется — окна лишь модулируют его.
+// Uniform-модуль: общая позиция фиксированной мировой точки (центр Дубая) в
+// координатах текущего кадра — считается в draw() и кладётся через setShaderModuleProps.
+const winShaderModule = {
+  name: "win",
+  vs: `
+layout(std140) uniform winUniforms {
+  vec2 refCommon;
+} win;
+`,
+  uniformTypes: { refCommon: "vec2<f32>" },
+};
+
 class WindowExtension extends LayerExtension {
   getShaders() {
     return {
+      modules: [winShaderModule],
       inject: {
         "vs:#decl": `
-out vec3 vWin_planM;
+out vec2 vWin_planM;
 out float vWin_elevM;
 out vec3 vWin_normal;
 `,
         "vs:DECKGL_FILTER_COLOR": `
-float vWin_cpm = project_size(1.0);          // общих единиц на метр
-vWin_elevM = geometry.position.z / vWin_cpm; // высота над землёй, м
-vWin_planM = vec3(geometry.position.xy / vWin_cpm, 0.0);
+// Координаты относительно фиксированной точки (центр Дубая): и geometry.position,
+// и win.refCommon несут один и тот же по-кадровый сдвиг deck (commonOrigin) →
+// их разность от камеры НЕ зависит → сетка окон статична при панораме/вращении.
+// Числа малы (в пределах города) → высокая точность float.
+float vWin_mpc = 1.0 / project_size(1.0);
+vWin_planM = (geometry.position.xy - win.refCommon) * vWin_mpc;
+vWin_elevM = geometry.position.z * vWin_mpc;
 vWin_normal = geometry.normal;
 `,
         "fs:#decl": `
-in vec3 vWin_planM;
+in vec2 vWin_planM;
 in float vWin_elevM;
 in vec3 vWin_normal;
+float vWin_hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+// Антиалиасинговая линия сетки: 1 внутри ячейки (стекло), 0 на линии (простенок).
+// Ширина линии = экранный размер (fwidth) → вблизи чётко, а не рвано.
+float vWin_axis(float x, float lh){
+  float d = abs(fract(x) - 0.5);
+  float w = fwidth(x) + 1e-5;
+  return 1.0 - smoothstep(0.5 - lh - w, 0.5 - lh + w, d);
+}
 `,
         "fs:DECKGL_FILTER_COLOR": `
-// Щадящий для глаз режим: без «горящих» окон и бликов, широкие мягкие простенки,
-// низкий контраст — чтобы движущаяся сетка не мерцала (фотосенситивность).
+// Высота здания закодирована в альфе fill-цвета (см. getFillColor). Читаем и сразу
+// возвращаем альфу=1, чтобы здание оставалось непрозрачным.
+float vWin_topM = color.a * 1000.0;
+color.a = 1.0;
 float vWin_side = 1.0 - abs(vWin_normal.z);        // ~1 стена, ~0 крыша
 if (vWin_side > 0.35) {
-  float floorH = 4.0;                              // метров на этаж
-  float winW   = 4.0;                              // метров на окно
+  float floorH = 3.6;                              // метров на этаж
+  float winW   = 3.6;                              // метров на окно
   float row = vWin_elevM / floorH;
   // ось вдоль фасада (перпендикулярно нормали в плане)
   float col = (abs(vWin_normal.x) > abs(vWin_normal.y)) ? vWin_planM.y : vWin_planM.x;
   col = col / winW;
-  float fr = fract(row);
-  float fc = fract(col);
-  // широкие мягкие переходы (0.30) → низкая частота, меньше алиасинга/мерцания
-  float mx = smoothstep(0.0, 0.30, fc) * smoothstep(0.0, 0.30, 1.0 - fc);
-  float my = smoothstep(0.0, 0.30, fr) * smoothstep(0.0, 0.30, 1.0 - fr);
-  float pane = mx * my;                            // 1 внутри стекла, 0 на перемычке
-  vec3 frame = color.rgb * 0.82;                   // едва темнее — мягкие простенки
+  // видимость гаснет, когда ячейка мельче ~1.5px → плоский цвет (без шума вдали)
+  float vis = 1.0 - smoothstep(0.3, 0.6, max(fwidth(col), fwidth(row)));
+  float pane = vWin_axis(col, 0.14) * vWin_axis(row, 0.14);
+  vec3 frame = color.rgb * 0.45;                   // тёмные простенки (видимые)
   vec3 c = mix(frame, color.rgb, pane);
-  color.rgb = mix(color.rgb, c, vWin_side * 0.5);  // общий эффект приглушён вдвое
+  // горящие окна (детерминированный шум по ячейке)
+  float lit = step(0.65, vWin_hash(floor(vec2(col, row))));
+  c += lit * pane * vec3(1.0, 0.85, 0.55) * 0.5;
+  color.rgb = mix(color.rgb, c, vWin_side * vis); // vis: всё гаснет вдали, без ряби
+  // Белый кант по верхней кромке стены (у крыши). Гаснет вместе с окнами (vis),
+  // поэтому на дальнем зуме контура нет — рисуется с той же дистанции, что окна.
+  float edge = smoothstep(vWin_topM - 2.0, vWin_topM - 0.4, vWin_elevM);
+  // на низких зданиях кант не нужен: под ~18 м его нет, к ~45 м — на полную
+  float hgate = smoothstep(18.0, 45.0, vWin_topM);
+  color.rgb = mix(color.rgb, vec3(1.0), edge * vis * hgate * 0.9);
+} else {
+  // КРЫШИ: чистая тёмная матовая «шапка».
+  color.rgb *= 0.66;
 }
 `,
       },
     };
+  }
+
+  draw() {
+    // Фикс-точка = начало тайла: projectPosition (метод слоя) даёт её в ТОЙ ЖЕ
+    // сдвинутой системе, что и шейдерный geometry.position, поэтому в разности
+    // по-кадровый сдвиг сокращается, а число мало́ (в пределах тайла) → точно.
+    const self = this as unknown as {
+      projectPosition: (p: number[]) => number[];
+      setShaderModuleProps: (props: Record<string, unknown>) => void;
+    };
+    const r = self.projectPosition([0, 0, 0]);
+    self.setShaderModuleProps({ win: { refCommon: [r[0], r[1]] } });
   }
 }
 
@@ -172,7 +220,14 @@ export function makeBuildingsLayer(
     autoHighlight: false, // без белой вспышки при наведении (фотосенситивность)
     material: GLOSS_MATERIAL,
     extensions: [windowExtension],
-    getFillColor: (f: { properties: Record<string, unknown> }) => colorForFeature(layerId, f.properties),
+    // Альфу fill-цвета используем как переносчик высоты здания (0..1000 м → 0..255):
+    // шейдер читает её для белого канта, затем ставит альфу=1 (непрозрачно).
+    getFillColor: (f: { properties: Record<string, unknown> }) => {
+      const [r, g, b] = colorForFeature(layerId, f.properties);
+      const h = Math.max(0, Math.min(1000, heightForFeature(layerId, f.properties)));
+      // округляем ВНИЗ: декодированная вершина ≤ реальной → кант всегда дотянется до крыши
+      return [r, g, b, Math.floor((h / 1000) * 255)];
+    },
     getElevation: (f: { properties: Record<string, unknown> }) => heightForFeature(layerId, f.properties),
     onClick: (info: { object?: { properties?: Record<string, unknown> } }) => {
       const id = info.object?.properties?.id;
